@@ -1,22 +1,21 @@
-# The commit the image is built from, read from the few files of .git that name it (.dockerignore lets only these through) in a stage
-# that is thrown away: no git file reaches the final image. Never fails the build: no .git (the globs match nothing), a detached or
-# unreadable HEAD, anything that is not a full hash: "unknown". A modified working tree is not seen (that needs git and every object).
-FROM php:8.4-apache AS commit
-WORKDIR /g
-COPY .gi[t]/HEAD ./HEAD
-COPY .gi[t]/refs ./refs/
-COPY .gi[t]/packed-refs ./
-RUN c=unknown; \
-	h=$(cat HEAD 2>/dev/null); \
-	case "$h" in \
-		"ref: "*) r=${h#ref: }; f=$(cat "$r" 2>/dev/null || grep " $r\$" packed-refs 2>/dev/null | cut -d' ' -f1) ;; \
-		*) f=$h ;; \
-	esac; \
-	case "$f" in \
-		""|*[!0-9a-f]*) ;; \
-		*) if [ ${#f} -eq 40 ] || [ ${#f} -eq 64 ]; then c=$(printf '%.8s' "$f"); fi ;; \
-	esac; \
-	printf '%s' "$c" > /commit
+# The image of moncycle.app: the API (named context "backend", its www_data/) and the web app (named context "webapp"), built by
+# build.sh, which stages the two source trees and gives the commits and the date as build arguments:
+#   docker buildx build --build-context backend=DIR --build-context webapp=DIR --build-arg BACKEND_COMMIT=... .
+# The versions are checked first: the build fails when the backend is out of the range of generations the web app declares.
+
+# The web app: dependencies from npm (package-lock.json), vendored dist files, the compatibility check against the backend's
+# APP_VERSION, version.json stamped with the build. Only src/ leaves this stage.
+FROM --platform=$BUILDPLATFORM node:24-alpine AS webapp_build
+ARG WEBAPP_COMMIT=unknown
+ARG BUILD_DATE=unknown
+WORKDIR /webapp
+COPY --from=webapp package.json package-lock.json ./
+COPY --from=webapp scripts ./scripts
+COPY --from=webapp src ./src
+COPY --from=backend www_data/constants.php /backend/constants.php
+RUN npm ci --no-audit --no-fund \
+	&& node scripts/check_api_compat.mjs /backend/constants.php \
+	&& node scripts/stamp_version.mjs src/version.json "$BUILD_DATE" "$WEBAPP_COMMIT"
 
 FROM php:8.4-apache
 
@@ -41,14 +40,9 @@ RUN sed -i '/CustomLog/d' /etc/apache2/sites-available/*.conf /etc/apache2/conf-
 	&& a2disconf -q other-vhosts-access-log \
 	&& ! grep -rnE '^[[:space:]]*CustomLog' /etc/apache2
 
-# worckaround while https://github.com/chartjs/Chart.js/issues/11478 is not fixed
-RUN mkdir -p /var/www/html/vendor/chartjs/ \
-	&& curl -fsSL -o /var/www/html/vendor/chartjs/chart.js https://cdn.jsdelivr.net/npm/chart.js@4.5.1 \
-	&& echo "48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a  /var/www/html/vendor/chartjs/chart.js" | sha256sum -c -
-
 # the scheduler of the daily job (CRON_ENABLED, server_conf/moncycle.crontab). supercronic is one static binary: unlike
 # the system cron it has no daemon, pid file or spool to write, so it runs in a read-only container, as the web user,
-# with the environment of the container (the DB settings the job needs). Pinned and checked like chart.js above.
+# with the environment of the container (the DB settings the job needs). Pinned and checked by its hash.
 RUN arch="$(dpkg --print-architecture)" \
 	&& case "$arch" in \
 		amd64) sha256=a53ae236602c7338aba3fbaff40bda6300eae3b9fedb8261eb06cfe3724430c1 ;; \
@@ -67,22 +61,27 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
 COPY --from=composer/composer:latest-bin /composer /usr/bin/composer
 COPY ./server_conf/zz-moncycleapp.conf /etc/apache2/conf-enabled/zz-moncycleapp.conf
-COPY ./www_data /var/www/html/
-COPY ./www_data/config.docker.php /var/www/html/config.php
+COPY --from=backend www_data /var/www/html/
+COPY --from=backend www_data/config.docker.php /var/www/html/config.php
+COPY --from=webapp_build /webapp/src /var/www/webapp/
 
-# APP_COMMIT (constants.php) from the stage above; the value is 8 hex digits or "unknown", and the build fails if the line is gone.
-# A bind mount: the file is in no layer of the image.
-RUN --mount=type=bind,from=commit,source=/commit,target=/tmp/commit \
-	id="$(cat /tmp/commit)" \
-	&& sed -i "s/^const APP_COMMIT = \"dev\";/const APP_COMMIT = \"$id\";/" /var/www/html/constants.php \
-	&& grep -q "^const APP_COMMIT = \"$id\";" /var/www/html/constants.php
+# APP_COMMIT (constants.php): 8 hex digits or "unknown", and the build fails if the line is gone.
+ARG BACKEND_COMMIT=unknown
+RUN case "$BACKEND_COMMIT" in unknown|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;; *) echo "BACKEND_COMMIT: 8 hex digits or unknown" >&2; exit 1 ;; esac \
+	&& sed -i "s/^const APP_COMMIT = \"dev\";/const APP_COMMIT = \"$BACKEND_COMMIT\";/" /var/www/html/constants.php \
+	&& grep -q "^const APP_COMMIT = \"$BACKEND_COMMIT\";" /var/www/html/constants.php
+
+# The web app is the document root (the pages, config.json, version.json); the API, the Swagger UI and the scripts stay in
+# /var/www/html and are reached by the Alias lines of zz-moncycleapp.conf. Nothing in the web app runs as PHP.
+RUN sed -i 's#DocumentRoot /var/www/html#DocumentRoot /var/www/webapp#' /etc/apache2/sites-available/000-default.conf \
+	&& grep -q 'DocumentRoot /var/www/webapp' /etc/apache2/sites-available/000-default.conf
 
 # dependencies from composer.lock; the code is root-owned and not writable: the app never writes to disk
 RUN cd /var/www/html \
 	&& COMPOSER_ALLOW_SUPERUSER=1 composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --classmap-authoritative \
 	&& composer clear-cache \
-	&& chown -R root:root /var/www/html \
-	&& chmod -R a+rX,go-w /var/www/html
+	&& chown -R root:root /var/www/html /var/www/webapp \
+	&& chmod -R a+rX,go-w /var/www/html /var/www/webapp
 
 # where LOG_OUTPUT can point a file of the app log (open_basedir allows this directory only). Owned by the web
 # user so that a named volume mounted here inherits it; a bind mount takes the host directory's owner (chown 33:33).
@@ -102,3 +101,14 @@ CMD ["apache2-foreground"]
 
 # last: composer needs the functions that this file disables
 COPY ./server_conf/moncycleapp_php.ini $PHP_INI_DIR/conf.d
+
+ARG BACKEND_VERSION=unknown
+ARG WEBAPP_VERSION=unknown
+ARG BACKEND_COMMIT
+ARG WEBAPP_COMMIT
+LABEL org.opencontainers.image.title="moncycle.app" \
+	org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+	app.moncycle.backend.version="$BACKEND_VERSION" \
+	app.moncycle.backend.commit="$BACKEND_COMMIT" \
+	app.moncycle.webapp.version="$WEBAPP_VERSION" \
+	app.moncycle.webapp.commit="$WEBAPP_COMMIT"

@@ -1,0 +1,6 @@
+docker-compose.yml
+dev.env
+*.pw
+build/
+CLAUDE.md
+.DS_Store

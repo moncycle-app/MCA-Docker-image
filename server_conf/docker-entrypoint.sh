@@ -7,6 +7,7 @@
 #   3. makes the frame-src of the CSP from TERMS_OF_SERVICE_URL (CSP_FRAME_SRC) and its connect-src from NEWS_URL (CSP_CONNECT_SRC),
 #   3a. reads REQUEST_BODY_MAX_BYTES (APP_BODY_MAX_BYTES: Apache's body wall and php.ini's post_max_size),
 #   3b. makes the ServerName of Apache from the host of APP_URL (APP_SERVER_NAME),
+#   3c. makes the CORS_ORIGIN_REGEX of Apache from CORS_ALLOWED_ORIGINS (a web app on another origin; empty = no CORS header),
 #   4. starts the schedulers (supercronic) unless CRON_ENABLED is off: one for the daily job (server_conf/moncycle.crontab)
 #      and, when DEMO_ENABLED is on, one for the hourly reset of the demo accounts (server_conf/moncycle-demo.crontab),
 #   5. prints the moncycle.app banner,
@@ -76,6 +77,21 @@ if [ "${1:-}" = "apache2-foreground" ]; then
 	# test (zz-moncycleapp.conf) and php.ini's post_max_size: one setting for the three walls. A restart applies a new value.
 	APP_BODY_MAX_BYTES=$(as_web_user php -r 'require "/var/www/html/config.php"; echo REQUEST_BODY_MAX_BYTES;')
 	export APP_BODY_MAX_BYTES
+
+	# CORS_ALLOWED_ORIGINS: exact origins (scheme, host, optional port; spaces or commas between them) of web apps served apart from
+	# the API. Anything else in the list (a path, a wildcard, a typo) is left out with a line in the log, never turned into a pattern.
+	# None valid: a regex that matches nothing, so no CORS header is ever sent.
+	cors_regex=""
+	for origin in $(printf '%s' "${CORS_ALLOWED_ORIGINS:-}" | tr ',' ' '); do
+		if printf '%s' "$origin" | grep -Eq '^https?://[A-Za-z0-9.-]+(:[0-9]+)?$'; then
+			escaped=$(printf '%s' "$origin" | sed 's/\./\\./g')
+			cors_regex="${cors_regex:+$cors_regex|}$escaped"
+		else
+			echo "cors: '$origin' in CORS_ALLOWED_ORIGINS is not an origin (https://host[:port]), ignored."
+		fi
+	done
+	if [ -n "$cors_regex" ]; then CORS_ORIGIN_REGEX="^($cors_regex)\$"; else CORS_ORIGIN_REGEX='^(?!)$'; fi
+	export CORS_ORIGIN_REGEX
 
 	# the same words as the boolean settings of the app (true/false, on/off, yes/no, 1/0, any case); a typo keeps the
 	# default: on for CRON_ENABLED, off for DEMO_ENABLED. One scheduler per crontab: it reads its file itself, as the web user.
