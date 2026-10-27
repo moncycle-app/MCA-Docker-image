@@ -16,7 +16,9 @@ Apache serves the web app at `/` and reaches the backend through `Alias` lines: 
 The three repositories sit side by side (`MCA-backend-and-API/`, `MCA-web-APP/`, `MCA-Docker-image/`):
 
 ```sh
-./build.sh                                   # image jeanio/moncycle.app, linux/amd64
+./build.sh                                   # image jeanio/moncycle.app, for the architecture of this machine
+./build.sh --platform amd64                  # or arm64
+./build.sh --platform both                   # jeanio/moncycle.app-amd64 and jeanio/moncycle.app-arm64
 ./build.sh --tag dev_moncycle_app            # another name
 ./build.sh --backend ../MCA-backend-and-API --webapp ../MCA-web-APP --platform linux/arm64
 ./build.sh --backend-ref URL@REF --webapp-ref URL@REF   # clones them to a temporary folder (CI)
