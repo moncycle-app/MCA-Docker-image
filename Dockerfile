@@ -34,7 +34,7 @@ RUN a2enmod headers rewrite \
 	&& rm -f "$PHP_INI_DIR/conf.d/docker-php-ext-sodium.ini"
 
 # no Apache access log: the app writes its own (lib/log.php, docs/logs.md), whose `http.request` line
-# has no query string, where this one has `DELETE /api/v2/totp?code=<TOTP code>` and the dates of a read.
+# has no query string, where this one has `DELETE /api/v3/totp?code=<TOTP code>` and the dates of a read.
 # ErrorLog stays (stderr). The build fails if a CustomLog directive is left (apache2.conf has a comment that names it).
 RUN sed -i '/CustomLog/d' /etc/apache2/sites-available/*.conf /etc/apache2/conf-available/*.conf \
 	&& a2disconf -q other-vhosts-access-log \

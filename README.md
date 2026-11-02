@@ -47,8 +47,15 @@ runs the daily cron itself (`CRON_ENABLED`) and serves plain HTTP on port 80: pu
 | `APP_SCRIPT_ALLOW` | `127.0.0.1 ::1` | who may call `/script/` over HTTP |
 | `CAPTCHA_SECRET` | random per start | key of the signed captcha, 32+ characters |
 
-The web app reads `/config.json`: by default `{"apiUrl": "/api/v2"}` (this image's API). Bind-mount your own file read-only on
+The web app reads `/config.json`: by default `{"apiUrl": "/api/v3"}` (this image's API). Bind-mount your own file read-only on
 `/var/www/webapp/config.json` to point it elsewhere.
+
+### Upgrading to the `/api/v3` release
+
+This version needs the database migration to schema 16 (new table `user_setting`, columns dropped from `user_account`, table
+`description` renamed `day_description`). The entrypoint runs `script/auto_upgrade.php` at start: **take a database dump first**.
+The API moved from `/api/v2/` to `/api/v3/` (`/api/v2/` now answers 404): move every client, reverse-proxy rule (rate limits on
+`/api/v3/token`, `/register`, `/recover_password`, `/verify_email`, `/captcha`), health check and custom `config.json` to `/api/v3`.
 
 Cron by hand: `docker exec -u www-data <container> php /var/www/html/script/cron.php`.
 
