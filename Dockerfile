@@ -4,7 +4,10 @@
 # The versions are checked first: the build fails when the backend is out of the range of generations the web app declares.
 
 # The web app: dependencies from npm (package-lock.json), vendored dist files, the compatibility check against the backend's
-# APP_VERSION, version.json stamped with the build. Only src/ leaves this stage.
+# APP_VERSION, version.json stamped with the build, then the production build (scripts/build.mjs: src/ to dist/, hashed bundles in
+# assets/). The stamp comes first: the build copies version.json as it is. Only dist/ leaves this stage.
+# Runs on the build host (BUILDPLATFORM): npm ci installs esbuild's binary for that host, and the output is the same for every target.
+# The build fails without dist/index.html, and on a source map (it would publish the unminified code).
 FROM --platform=$BUILDPLATFORM node:24-alpine AS webapp_build
 ARG WEBAPP_COMMIT=unknown
 ARG BUILD_DATE=unknown
@@ -15,7 +18,10 @@ COPY --from=webapp src ./src
 COPY --from=backend www_data/constants.php /backend/constants.php
 RUN npm ci --no-audit --no-fund \
 	&& node scripts/check_api_compat.mjs /backend/constants.php \
-	&& node scripts/stamp_version.mjs src/version.json "$BUILD_DATE" "$WEBAPP_COMMIT"
+	&& node scripts/stamp_version.mjs src/version.json "$BUILD_DATE" "$WEBAPP_COMMIT" \
+	&& node scripts/build.mjs --out dist \
+	&& test -f dist/index.html \
+	&& test -z "$(find dist -name '*.map')"
 
 FROM php:8.4-apache
 
@@ -63,7 +69,7 @@ COPY --from=composer/composer:latest-bin /composer /usr/bin/composer
 COPY ./server_conf/zz-moncycleapp.conf /etc/apache2/conf-enabled/zz-moncycleapp.conf
 COPY --from=backend www_data /var/www/html/
 COPY --from=backend www_data/config.docker.php /var/www/html/config.php
-COPY --from=webapp_build /webapp/src /var/www/webapp/
+COPY --from=webapp_build /webapp/dist /var/www/webapp/
 
 # APP_COMMIT (constants.php): 8 hex digits or "unknown", and the build fails if the line is gone.
 ARG BACKEND_COMMIT=unknown
@@ -71,7 +77,7 @@ RUN case "$BACKEND_COMMIT" in unknown|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0
 	&& sed -i "s/^const APP_COMMIT = \"dev\";/const APP_COMMIT = \"$BACKEND_COMMIT\";/" /var/www/html/constants.php \
 	&& grep -q "^const APP_COMMIT = \"$BACKEND_COMMIT\";" /var/www/html/constants.php
 
-# The web app is the document root (the pages, config.json, version.json); the API, the Swagger UI and the scripts stay in
+# The web app (its built dist/) is the document root (index.html, assets/, config.json, version.json); the API, the Swagger UI and the scripts stay in
 # /var/www/html and are reached by the Alias lines of zz-moncycleapp.conf. Nothing in the web app runs as PHP.
 RUN sed -i 's#DocumentRoot /var/www/html#DocumentRoot /var/www/webapp#' /etc/apache2/sites-available/000-default.conf \
 	&& grep -q 'DocumentRoot /var/www/webapp' /etc/apache2/sites-available/000-default.conf

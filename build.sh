@@ -7,7 +7,8 @@
 # branch is cloned (and kept up to date) in MCA-backend-and-API/ and MCA-web-APP/ next to this script (gitignored).
 # The source trees are only read: build.sh stages a copy of the files git knows (tracked, or new and not ignored: modified files
 # included, local config.php, vendor/ and test files left out) and gives the commits and the date as build arguments. The Dockerfile
-# refuses the pair when the backend's APP_VERSION is outside the range of src/version.json of the web app.
+# refuses the pair when the backend's APP_VERSION is outside the range of src/version.json of the web app, then builds the web app
+# (scripts/build.mjs, esbuild from npm ci) from the staged package files, scripts/ and src/: nothing else is needed.
 set -eu
 
 BACKEND_GIT_URL="https://github.com/moncycle-app/MCA-backend-and-API"

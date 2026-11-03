@@ -6,7 +6,7 @@ Everything that builds and runs the image of [moncycle.app](https://www.moncycle
 | Where | What |
 |---|---|
 | `/var/www/html` | the backend (`www_data/` of the MCA-backend-and-API repository): API, scripts, libraries, config |
-| `/var/www/webapp` | the web app (`src/` of the MCA-web-APP repository), Apache's `DocumentRoot`; no PHP runs there |
+| `/var/www/webapp` | the web app, built (`dist/` of `npm run build` in the MCA-web-APP repository), Apache's `DocumentRoot`; no PHP runs there |
 
 Apache serves the web app at `/` and reaches the backend through `Alias` lines: `/api`, `/script` (this machine only,
 `APP_SCRIPT_ALLOW`), the Swagger UI files. `lib/`, `config*.php`, `constants.php` and the other `vendor/` trees have no address.
@@ -31,6 +31,21 @@ commits and date as build arguments. **The build fails when the backend is out o
 the start of `APP_VERSION` (`constants.php`) must be inside `api.min`..`api.max` of the web app's `src/version.json`. The image
 carries both versions as labels (`app.moncycle.backend.version`, `app.moncycle.webapp.version`, and their commits) and `version.json`
 of the web app is stamped with the build date and commit.
+
+The web app is then built in the image (`scripts/build.mjs`, after the stamp): its scripts and styles become minified bundles with a
+content hash in their name, `assets/<name>-<hash>.js` and `.css`; `index.html`, `config.json`, `version.json`, `i18n/*.json`, the fonts
+and images keep their names. The build fails without `dist/index.html` or with a source map in it. Cache policy of what Apache serves:
+
+| Files | `Cache-Control` |
+|---|---|
+| `/assets/<name>-<hash>.js`, `.css` | `public, max-age=31536000, immutable` (a change is a new name) |
+| `index.html`, `config.json`, `version.json`, `i18n/*.json`, any other `.js`/`.css`/`.json` | `no-cache` (revalidated, `304` when unchanged) |
+| fonts (`.ttf`, `.woff2`) | `public, max-age=31536000, immutable` |
+| images | `public, max-age=604800` |
+| `/api/` | `no-store` |
+| everything, with `PHP_CACHE=Off` (dev) | `no-store` |
+
+Text types (html, js, css, json, svg, ttf) are compressed by `mod_deflate` (`Vary: Accept-Encoding`).
 
 ## Run
 
@@ -62,7 +77,7 @@ Cron by hand: `docker exec -u www-data <container> php /var/www/html/script/cron
 ## Development
 
 Use `dev.env` (copy of `dev.env.example`) as `env_file`, and bind-mount the sources over the code of the image:
-`MCA-backend-and-API/www_data` on `/var/www/html` and `MCA-web-APP/src` on `/var/www/webapp` (run `npm ci` in `MCA-web-APP/` first: it makes `src/vendor/`).
+`MCA-backend-and-API/www_data` on `/var/www/html` and `MCA-web-APP/src` on `/var/www/webapp` (run `npm ci` in `MCA-web-APP/` first: it makes `src/vendor/`). The raw `src/` is served then, unbundled.
 Two trees are mounted separately because one mount over the other would put mount points inside a repository.
 
 ## Limits
