@@ -23,14 +23,15 @@ RUN npm ci --no-audit --no-fund \
 	&& test -f dist/index.html \
 	&& test -z "$(find dist -name '*.map')"
 
-FROM php:8.4-apache
+FROM php:8.5-apache
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends libfreetype6-dev libjpeg62-turbo-dev libpng-dev unzip \
 	&& rm -rf /var/lib/apt/lists/*
 
+# OPcache is part of PHP itself since 8.5: nothing to build, and php.ini below sets it
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg \
-	&& docker-php-ext-install -j$(nproc) gd pdo pdo_mysql opcache
+	&& docker-php-ext-install -j$(nproc) gd pdo_mysql
 
 # headers: security and cache headers. rewrite: the 413 on the Content-Length of a request (zz-moncycleapp.conf).
 # The others serve nothing here (/server-status shows request URLs)
@@ -77,7 +78,7 @@ RUN case "$BACKEND_COMMIT" in unknown|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0
 	&& sed -i "s/^const APP_COMMIT = \"dev\";/const APP_COMMIT = \"$BACKEND_COMMIT\";/" /var/www/html/constants.php \
 	&& grep -q "^const APP_COMMIT = \"$BACKEND_COMMIT\";" /var/www/html/constants.php
 
-# The web app (its built dist/) is the document root (index.html, assets/, config.json, version.json); the API, the Swagger UI and the scripts stay in
+# The web app (its built dist/) is the document root (index.html, assets/, config.json, version.json); the API, the Scalar page and the scripts stay in
 # /var/www/html and are reached by the Alias lines of zz-moncycleapp.conf. Nothing in the web app runs as PHP.
 RUN sed -i 's#DocumentRoot /var/www/html#DocumentRoot /var/www/webapp#' /etc/apache2/sites-available/000-default.conf \
 	&& grep -q 'DocumentRoot /var/www/webapp' /etc/apache2/sites-available/000-default.conf
@@ -110,7 +111,6 @@ COPY ./server_conf/moncycleapp_php.ini $PHP_INI_DIR/conf.d
 
 ARG BACKEND_VERSION=unknown
 ARG WEBAPP_VERSION=unknown
-ARG BACKEND_COMMIT
 ARG WEBAPP_COMMIT
 LABEL org.opencontainers.image.title="moncycle.app" \
 	org.opencontainers.image.licenses="AGPL-3.0-or-later" \

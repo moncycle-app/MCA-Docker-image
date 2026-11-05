@@ -9,7 +9,7 @@ Everything that builds and runs the image of [moncycle.app](https://www.moncycle
 | `/var/www/webapp` | the web app, built (`dist/` of `npm run build` in the MCA-web-APP repository), Apache's `DocumentRoot`; no PHP runs there |
 
 Apache serves the web app at `/` and reaches the backend through `Alias` lines: `/api`, `/script` (this machine only,
-`APP_SCRIPT_ALLOW`), the Swagger UI files. `lib/`, `config*.php`, `constants.php` and the other `vendor/` trees have no address.
+`APP_SCRIPT_ALLOW`), the Scalar page files. `lib/`, `config*.php`, `constants.php` and the other `vendor/` trees have no address.
 
 ## Build
 
@@ -49,7 +49,7 @@ Text types (html, js, css, json, svg, ttf) are compressed by `mod_deflate` (`Var
 
 ## Run
 
-Copy [`docker-compose.exemple.yml`](docker-compose.exemple.yml), set `APP_URL` (with a trailing `/`), the `DB_*` and `SMTP_*` variables
+Copy [`docker-compose.exemple.yml`](docker-compose.exemple.yml), set `APP_URL` (with a trailing `/`), `DB_DSN`, `SMTP_URL`
 and the two secret files, then `docker compose up -d`. The container makes the schema on a first start, upgrades an older database,
 runs the daily cron itself (`CRON_ENABLED`) and serves plain HTTP on port 80: put a reverse proxy with TLS in front, and set
 `TRUSTED_PROXIES`. Every setting of the application is in the backend README ("Settings"). Specific to the image:
@@ -66,6 +66,11 @@ The web app reads `/config.json`: by default `{"apiUrl": "/api/v3"}` (this image
 `/var/www/webapp/config.json` to point it elsewhere.
 
 ### Upgrading to the `/api/v3` release
+
+**Settings that changed** (the container no longer reads the old ones): `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_ID` become the single
+`DB_DSN` (`mysql:host=...;port=3306;dbname=...;user=...`), and `SMTP_HOST`, `SMTP_PORT`, `SMTP_MAIL` become `SMTP_URL`
+(`smtps://login%40domain@host:465`); the password variables and `*_FILE` secrets are unchanged. The image is now PHP 8.5, and the
+API documentation page is Scalar (it replaces Swagger UI). See `docker-compose.exemple.yml`.
 
 This version needs the database migration to schema 16 (new table `user_setting`, columns dropped from `user_account`, table
 `description` renamed `day_description`). The entrypoint runs `script/auto_upgrade.php` at start: **take a database dump first**.

@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   moncycle.app:
     hostname: 'MONCYCLE-APP-CONTAINER'
@@ -12,14 +10,12 @@ services:
       TZ: 'Europe/Paris'
       VIRTUAL_HOST: 'YOUR.DOMAINE.NAME'
       APP_URL: 'https://YOUR.DOMAINE.NAME/'
-      DB_HOST: maria_db_hostname
-      DB_ID: maria_db_login_id
-      DB_NAME: maria_db_name
-      DB_PORT: 3306
+      # One string for the database, one for the mail server, without their passwords: those stay in the secrets below. To keep the whole
+      # string in a secret instead, use DB_DSN_FILE / SMTP_URL_FILE (backend README, "Settings").
+      DB_DSN: 'mysql:host=maria_db_hostname;port=3306;dbname=maria_db_name;user=maria_db_login_id'
       DB_PASSWORD_FILE: /run/secrets/db_password
-      SMTP_HOST: smtp_server_host_name
-      SMTP_PORT: 465
-      SMTP_MAIL: smtp_email_and_mogin_id
+      # smtps:// is TLS from the first byte (465), smtp:// is STARTTLS (587). The login is the sender unless ?from=address says otherwise; its @ is written %40.
+      SMTP_URL: 'smtps://smtp_login%40your.domain@smtp_server_host_name:465'
       SMTP_PASSWORD_FILE: /run/secrets/smtp_password
       PHP_CACHE: 1
       # The key that signs the captcha (32 characters or more, random: `openssl rand -base64 48`). Left unset, the container
@@ -35,13 +31,13 @@ services:
       # The two public demo accounts (password "demo", README, "Demo accounts"). Off by default; on, they can sign in
       # and script/demo_reset.php loads script/db/demo.sql every hour, which puts them back as it makes them
       # DEMO_ENABLED: 'false'
-      # The reverse proxy in front, as the container sees it (an address or a CIDR range, comma separated): the
-      # X-Forwarded-For of its requests is then the visitor's address, for the log and the login throttling. Left
-      # empty, every visitor has the proxy's address (docs/deployment.md, "Reverse proxy").
       # A web app served from ANOTHER origin than the API (exact origins, spaces or commas; empty = same origin only, no CORS header).
       # Also list it in WEB_APP_ORIGINS (browser writes) and make APP_URL its public address (README of the backend, "Remote web app").
       # CORS_ALLOWED_ORIGINS: 'https://app.example.org'
       # WEB_APP_ORIGINS: 'https://app.example.org'
+      # The reverse proxy in front, as the container sees it (an address or a CIDR range, comma separated): the
+      # X-Forwarded-For of its requests is then the visitor's address, for the log and the login throttling. Left
+      # empty, every visitor has the proxy's address (docs/deployment.md, "Reverse proxy").
       TRUSTED_PROXIES: 'ADDRESS.OR.RANGE.OF.YOUR.REVERSE.PROXY'
       # the app log goes to `docker logs` (stdout) by default; to keep it in a file, mount a volume on
       # /var/log/moncycle (below), name the file in it, and run the cron as www-data (docs/logs.md, "To a file")

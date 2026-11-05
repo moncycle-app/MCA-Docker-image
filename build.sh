@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
 		--webapp-ref) webapp_ref="$2"; shift 2 ;;
 		--tag) tag="$2"; shift 2 ;;
 		--platform) platform="$2"; shift 2 ;;
-		-h|--help) sed -n 2,10p "$0"; exit 0 ;;
+		-h|--help) sed -n 2,12p "$0"; exit 0 ;;
 		*) echo "unknown option: $1" >&2; exit 2 ;;
 	esac
 done

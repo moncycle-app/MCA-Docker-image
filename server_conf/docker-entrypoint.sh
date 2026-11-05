@@ -4,7 +4,7 @@
 #   1b. upgrades the database when its schema_version is behind APP_VERSION (script/auto_upgrade.php; skipped in MAINTENANCE_MODE),
 #       what it does is printed, so `docker logs` shows it,
 #   2. makes the key that signs the captcha challenges when none is given (CAPTCHA_SECRET),
-#   3. makes the frame-src of the CSP from TERMS_OF_SERVICE_URL (CSP_FRAME_SRC) and its connect-src from NEWS_URL (CSP_CONNECT_SRC),
+#   3. makes the frame-src of the CSP from TERMS_OF_SERVICE_URL and TERMS_OF_SERVICE_URLS (CSP_FRAME_SRC) and its connect-src from NEWS_URL (CSP_CONNECT_SRC),
 #   3a. reads REQUEST_BODY_MAX_BYTES (APP_BODY_MAX_BYTES: Apache's body wall and php.ini's post_max_size),
 #   3b. makes the ServerName of Apache from the host of APP_URL (APP_SERVER_NAME),
 #   3c. makes the CORS_ORIGIN_REGEX of Apache from CORS_ALLOWED_ORIGINS (a web app on another origin; empty = no CORS header),
@@ -55,10 +55,11 @@ if [ "${1:-}" = "apache2-foreground" ]; then
 	# and the policy forbids every frame and every request but the app's own.
 	# The URLs are read from config.php, which has their defaults (an unset variable is the official instance's, an empty one none),
 	# so that the image holds no copy of them.
-	urls=$(as_web_user php -r 'require "/var/www/html/config.php"; echo TERMS_OF_SERVICE_URL, "\n", NEWS_URL, "\n";')
-	terms_url=$(printf '%s\n' "$urls" | sed -n 1p)
-	news_url=$(printf '%s\n' "$urls" | sed -n 2p)
-	CSP_FRAME_SRC=$(printf '%s' "$terms_url" | sed -nE 's#^(https://[A-Za-z0-9.-]+(:[0-9]+)?)(/.*)?$#\1#p')
+	# The terms come in several languages (TERMS_OF_SERVICE_URL and TERMS_OF_SERVICE_URLS): frame-src lists the origin of each page, once.
+	# The first line is the news file, the others the terms pages.
+	urls=$(as_web_user php -r 'require "/var/www/html/config.php"; echo NEWS_URL, "\n", TERMS_OF_SERVICE_URL, "\n", implode("\n", TERMS_OF_SERVICE_URLS), "\n";')
+	news_url=$(printf '%s\n' "$urls" | sed -n 1p)
+	CSP_FRAME_SRC=$(printf '%s\n' "$urls" | sed -n '2,$p' | sed -nE 's#^(https://[A-Za-z0-9.-]+(:[0-9]+)?)(/.*)?$#\1#p' | awk '!seen[$0]++' | paste -sd' ' -)
 	[ -n "$CSP_FRAME_SRC" ] || CSP_FRAME_SRC="'none'"
 	export CSP_FRAME_SRC
 	CSP_CONNECT_SRC="'self'"
